@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Plus, X, Check, Loader2, Trash2, Pencil } from 'lucide-react'
+import { Plus, X, Check, Loader2, Trash2, Pencil, ChevronDown, Upload } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 
 const supabase = createClient(
@@ -16,6 +16,7 @@ export default function App() {
   const [editingBook, setEditingBook] = useState(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
+  const [expandedId, setExpandedId] = useState(null)
 
   useEffect(() => {
     loadBooks()
@@ -101,10 +102,84 @@ export default function App() {
       const { error } = await supabase.from('books').delete().eq('id', id)
       if (error) throw error
       setBooks(books.filter((b) => b.id !== id))
+      if (expandedId === id) setExpandedId(null)
       showToast('삭제되었어요')
     } catch (e) {
       console.error('Delete error:', e)
       showToast('삭제에 실패했어요')
+    }
+  }
+
+  // ───── 모임 기록(메모/사진) ─────
+  async function handleSaveNote(bookId, note) {
+    try {
+      const { data, error } = await supabase
+        .from('books')
+        .update({ note })
+        .eq('id', bookId)
+        .select()
+      if (error) throw error
+      if (data && data.length > 0) {
+        setBooks(books.map(b => b.id === bookId ? data[0] : b))
+      }
+      showToast('기록이 저장되었어요')
+    } catch (e) {
+      console.error('Save note error:', e)
+      showToast('저장에 실패했어요: ' + (e.message || ''))
+    }
+  }
+
+  async function handleUploadPhoto(bookId, file) {
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+      const fileName = `${bookId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+      const { error: upErr } = await supabase.storage
+        .from('book-photos')
+        .upload(fileName, file, { cacheControl: '3600', upsert: false })
+      if (upErr) throw upErr
+
+      const { data: urlData } = supabase.storage
+        .from('book-photos')
+        .getPublicUrl(fileName)
+      const url = urlData.publicUrl
+
+      const book = books.find(b => b.id === bookId)
+      const newPhotos = [...(book?.photos || []), url]
+      const { data, error } = await supabase
+        .from('books')
+        .update({ photos: newPhotos })
+        .eq('id', bookId)
+        .select()
+      if (error) throw error
+      if (data && data.length > 0) {
+        setBooks(books.map(b => b.id === bookId ? data[0] : b))
+      }
+    } catch (e) {
+      console.error('Upload error:', e)
+      showToast('사진 업로드 실패: ' + (e.message || ''))
+    }
+  }
+
+  async function handleDeletePhoto(bookId, url) {
+    try {
+      const path = url.split('/book-photos/')[1]
+      if (path) {
+        await supabase.storage.from('book-photos').remove([path])
+      }
+      const book = books.find(b => b.id === bookId)
+      const newPhotos = (book?.photos || []).filter(p => p !== url)
+      const { data, error } = await supabase
+        .from('books')
+        .update({ photos: newPhotos })
+        .eq('id', bookId)
+        .select()
+      if (error) throw error
+      if (data && data.length > 0) {
+        setBooks(books.map(b => b.id === bookId ? data[0] : b))
+      }
+    } catch (e) {
+      console.error('Delete photo error:', e)
+      showToast('사진 삭제 실패')
     }
   }
 
@@ -228,7 +303,7 @@ export default function App() {
         <section id="archive" className="py-12">
           <div className="flex justify-between items-baseline flex-wrap gap-3 mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">아카이브</h2>
-            <div className="text-sm text-neutral-400">연도별로 보기</div>
+            <div className="text-sm text-neutral-400">행을 누르면 모임 기록이 열려요</div>
           </div>
 
           <div className="flex flex-wrap gap-1.5 mb-8">
@@ -264,6 +339,11 @@ export default function App() {
                     formatDate={formatDate}
                     onDelete={() => handleDeleteBook(b.id)}
                     onEdit={() => setEditingBook(b)}
+                    expanded={expandedId === b.id}
+                    onToggle={() => setExpandedId(expandedId === b.id ? null : b.id)}
+                    onSaveNote={(note) => handleSaveNote(b.id, note)}
+                    onUploadPhoto={(file) => handleUploadPhoto(b.id, file)}
+                    onDeletePhoto={(url) => handleDeletePhoto(b.id, url)}
                   />
                 ))}
               </div>
@@ -472,17 +552,49 @@ function TableHeader() {
   )
 }
 
-function BookRow({ book, num, formatDate, onDelete, onEdit }) {
+function BookRow({
+  book,
+  num,
+  formatDate,
+  onDelete,
+  onEdit,
+  expanded,
+  onToggle,
+  onSaveNote,
+  onUploadPhoto,
+  onDeletePhoto,
+}) {
+  const stop = (e) => e.stopPropagation()
+  const photoCount = (book.photos || []).length
+  const hasNote = !!(book.note && book.note.trim())
+
   return (
     <>
+      {/* Desktop row */}
       <div
-        className="group hidden sm:grid gap-4 py-3.5 px-2 border-b border-neutral-100 items-center hover:bg-neutral-50 transition"
+        onClick={onToggle}
+        className={`group hidden sm:grid gap-4 py-3.5 px-2 border-b border-neutral-100 items-center transition cursor-pointer ${
+          expanded ? 'bg-neutral-50' : 'hover:bg-neutral-50'
+        }`}
         style={{ gridTemplateColumns: COL_TEMPLATE }}
       >
         <div className="text-xs text-neutral-400 tabular-nums">{num}</div>
         <div className="text-xs text-neutral-500 tabular-nums">{formatDate(book)}</div>
         <div className="text-sm font-medium text-neutral-900">{book.picker || '—'}</div>
-        <div className="text-[15px] font-semibold tracking-tight truncate" title={book.title}>{book.title}</div>
+        <div className="text-[15px] font-semibold tracking-tight truncate flex items-center gap-1.5" title={book.title}>
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-neutral-400 transition-transform flex-shrink-0 ${expanded ? 'rotate-180' : ''}`}
+          />
+          <span className="truncate">{book.title}</span>
+          {(hasNote || photoCount > 0) && (
+            <span className="ml-1 inline-flex items-center gap-1 flex-shrink-0">
+              {hasNote && <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" title="기록 있음" />}
+              {photoCount > 0 && (
+                <span className="text-[10px] text-neutral-400 tabular-nums">📷 {photoCount}</span>
+              )}
+            </span>
+          )}
+        </div>
         <div className="text-sm text-neutral-500 truncate" title={book.author}>{book.author || '—'}</div>
         <div>
           <span className="inline-block px-2 py-0.5 bg-neutral-100 rounded text-[11px] text-neutral-600">
@@ -494,14 +606,14 @@ function BookRow({ book, num, formatDate, onDelete, onEdit }) {
         </div>
         <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition">
           <button
-            onClick={onEdit}
+            onClick={(e) => { stop(e); onEdit() }}
             className="text-neutral-400 hover:text-neutral-900 transition p-1"
             title="수정"
           >
             <Pencil className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={onDelete}
+            onClick={(e) => { stop(e); onDelete() }}
             className="text-neutral-300 hover:text-red-500 transition p-1"
             title="삭제"
           >
@@ -510,7 +622,13 @@ function BookRow({ book, num, formatDate, onDelete, onEdit }) {
         </div>
       </div>
 
-      <div className="sm:hidden py-3.5 px-1 border-b border-neutral-100">
+      {/* Mobile row */}
+      <div
+        onClick={onToggle}
+        className={`sm:hidden py-3.5 px-1 border-b border-neutral-100 cursor-pointer transition ${
+          expanded ? 'bg-neutral-50' : ''
+        }`}
+      >
         <div className="flex justify-between items-baseline mb-1.5">
           <div className="flex items-baseline gap-2 text-[11px] text-neutral-400 tabular-nums">
             <span>{num}</span>
@@ -519,12 +637,23 @@ function BookRow({ book, num, formatDate, onDelete, onEdit }) {
           </div>
           <div className="flex items-center gap-3">
             <div className="text-xs font-medium text-neutral-700">{book.picker || '—'}</div>
-            <button onClick={onEdit} className="text-neutral-400" title="수정">
+            <button onClick={(e) => { stop(e); onEdit() }} className="text-neutral-400" title="수정">
               <Pencil className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
-        <div className="text-[15px] font-semibold tracking-tight mb-1">{book.title}</div>
+        <div className="text-[15px] font-semibold tracking-tight mb-1 flex items-center gap-1.5">
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-neutral-400 transition-transform flex-shrink-0 ${expanded ? 'rotate-180' : ''}`}
+          />
+          <span className="flex-1">{book.title}</span>
+          {(hasNote || photoCount > 0) && (
+            <span className="inline-flex items-center gap-1 flex-shrink-0">
+              {hasNote && <span className="w-1.5 h-1.5 rounded-full bg-neutral-400" />}
+              {photoCount > 0 && <span className="text-[10px] text-neutral-400 tabular-nums">📷 {photoCount}</span>}
+            </span>
+          )}
+        </div>
         <div className="flex justify-between items-center">
           <div className="text-xs text-neutral-500">{book.author || '—'}</div>
           <div className="flex items-center gap-2">
@@ -537,7 +666,126 @@ function BookRow({ book, num, formatDate, onDelete, onEdit }) {
           </div>
         </div>
       </div>
+
+      {/* Expanded note panel */}
+      {expanded && (
+        <BookNotePanel
+          book={book}
+          onSaveNote={onSaveNote}
+          onUploadPhoto={onUploadPhoto}
+          onDeletePhoto={onDeletePhoto}
+        />
+      )}
     </>
+  )
+}
+
+function BookNotePanel({ book, onSaveNote, onUploadPhoto, onDeletePhoto }) {
+  const [note, setNote] = useState(book.note || '')
+  const [savingNote, setSavingNote] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef(null)
+
+  // 다른 곳에서 book.note가 바뀌면 동기화
+  useEffect(() => {
+    setNote(book.note || '')
+  }, [book.id, book.note])
+
+  const photos = book.photos || []
+  const isDirty = note !== (book.note || '')
+
+  const handleSave = async () => {
+    setSavingNote(true)
+    await onSaveNote(note)
+    setSavingNote(false)
+  }
+
+  const handleFiles = async (files) => {
+    const list = Array.from(files || [])
+    if (!list.length) return
+    setUploading(true)
+    for (const f of list) {
+      await onUploadPhoto(f)
+    }
+    setUploading(false)
+  }
+
+  return (
+    <div className="border-b border-neutral-100 bg-neutral-50/70 px-4 sm:px-6 py-5 sm:py-6 animate-fade-in">
+      <div className="max-w-3xl">
+        {/* 메모 */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">모임 기록</div>
+            {isDirty && (
+              <button
+                onClick={handleSave}
+                disabled={savingNote}
+                className="text-xs font-medium text-neutral-900 hover:text-neutral-600 transition disabled:opacity-50 flex items-center gap-1"
+              >
+                {savingNote && <Loader2 className="w-3 h-3 animate-spin" />}
+                저장
+              </button>
+            )}
+          </div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="이 책으로 모인 날의 이야기를 기록해보세요…"
+            rows={4}
+            className="w-full px-3.5 py-3 bg-white border border-neutral-200 rounded-lg text-sm leading-relaxed focus:outline-none focus:border-neutral-900 transition resize-y"
+          />
+        </div>
+
+        {/* 사진 */}
+        <div>
+          <div className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2">사진</div>
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+            {photos.map((url) => (
+              <div key={url} className="relative group/photo aspect-square rounded-lg overflow-hidden bg-neutral-200">
+                <a href={url} target="_blank" rel="noreferrer" className="block w-full h-full">
+                  <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                </a>
+                <button
+                  onClick={(e) => { e.preventDefault(); onDeletePhoto(url) }}
+                  className="absolute top-1.5 right-1.5 bg-black/60 hover:bg-black/80 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover/photo:opacity-100 transition"
+                  title="삭제"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="aspect-square rounded-lg border-2 border-dashed border-neutral-300 hover:border-neutral-900 hover:bg-white transition flex flex-col items-center justify-center gap-1 text-neutral-400 hover:text-neutral-900 disabled:opacity-50"
+            >
+              {uploading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <>
+                  <Upload className="w-5 h-5" />
+                  <span className="text-[11px] font-medium">추가</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => {
+              handleFiles(e.target.files)
+              e.target.value = ''
+            }}
+            className="hidden"
+          />
+        </div>
+      </div>
+    </div>
   )
 }
 
