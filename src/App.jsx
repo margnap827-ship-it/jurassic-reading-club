@@ -65,19 +65,31 @@ export default function App() {
   async function handleEditBook(updatedBook) {
     setSaving(true)
     try {
-      const { id, created_at, ...updateData } = updatedBook
+      // Supabase 테이블에 있는 컬럼만 업데이트
+      const updateData = {
+        year: updatedBook.year,
+        date: updatedBook.date,
+        month: updatedBook.month,
+        picker: updatedBook.picker,
+        title: updatedBook.title,
+        author: updatedBook.author,
+        pages: updatedBook.pages,
+        category: updatedBook.category,
+      }
       const { data, error } = await supabase
         .from('books')
         .update(updateData)
-        .eq('id', id)
+        .eq('id', updatedBook.id)
         .select()
       if (error) throw error
-      setBooks(books.map(b => b.id === id ? data[0] : b))
+      if (data && data.length > 0) {
+        setBooks(books.map(b => b.id === updatedBook.id ? data[0] : b))
+      }
       setEditingBook(null)
       showToast('수정되었어요')
     } catch (e) {
       console.error('Update error:', e)
-      showToast('수정에 실패했어요')
+      showToast('수정에 실패했어요: ' + (e.message || e))
     } finally {
       setSaving(false)
     }
