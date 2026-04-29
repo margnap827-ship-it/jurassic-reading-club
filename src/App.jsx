@@ -156,7 +156,6 @@ export default function App() {
     () => Object.entries(catCount).sort((a, b) => b[1] - a[1]),
     [catCount]
   )
-  const maxCatCount = catSorted.length > 0 ? catSorted[0][1] : 1
 
   const formatDate = (b) => {
     if (!b.date) return `${b.year}`
@@ -330,7 +329,6 @@ export default function App() {
 function CategoryDonut({ catSorted, totalBooks }) {
   const [hovered, setHovered] = useState(null)
 
-  // 차분한 팔레트 (어두운 톤 → 밝은 톤)
   const palette = [
     '#1f1f1f', '#3d3d3d', '#5a5a5a', '#787878',
     '#9a9a9a', '#b8b8b8', '#c8b8a8', '#a89888',
@@ -348,7 +346,6 @@ function CategoryDonut({ catSorted, totalBooks }) {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr] gap-8 sm:gap-12 items-center">
-      {/* 도넛 차트 */}
       <div className="relative w-full max-w-[320px] mx-auto" style={{ aspectRatio: '1' }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -379,7 +376,6 @@ function CategoryDonut({ catSorted, totalBooks }) {
           </PieChart>
         </ResponsiveContainer>
 
-        {/* 가운데 텍스트 */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           {active && (
             <>
@@ -393,7 +389,6 @@ function CategoryDonut({ catSorted, totalBooks }) {
         </div>
       </div>
 
-      {/* 범례 */}
       <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
         {data.map((d, i) => (
           <button
@@ -419,6 +414,7 @@ function CategoryDonut({ catSorted, totalBooks }) {
   )
 }
 
+function Stat({ label, value, unit }) {
   return (
     <div className="py-7 px-4 sm:px-6 border-r border-neutral-100 last:border-r-0 sm:[&:nth-child(2)]:border-r [&:nth-child(2)]:border-r-0">
       <div className="text-xs text-neutral-400 mb-2 font-medium">{label}</div>
@@ -444,7 +440,6 @@ function FilterPill({ active, onClick, children }) {
   )
 }
 
-// 데스크톱: 한 줄 테이블 / 모바일: 카드 스타일
 const COL_TEMPLATE = '50px 90px 60px 1.4fr 1fr 80px 50px 50px'
 
 function TableHeader() {
@@ -468,7 +463,6 @@ function TableHeader() {
 function BookRow({ book, num, formatDate, onDelete, onEdit }) {
   return (
     <>
-      {/* 데스크톱 (sm 이상): 한 줄 테이블 */}
       <div
         className="group hidden sm:grid gap-4 py-3.5 px-2 border-b border-neutral-100 items-center hover:bg-neutral-50 transition"
         style={{ gridTemplateColumns: COL_TEMPLATE }}
@@ -504,7 +498,6 @@ function BookRow({ book, num, formatDate, onDelete, onEdit }) {
         </div>
       </div>
 
-      {/* 모바일 (sm 미만): 카드 스타일 */}
       <div className="sm:hidden py-3.5 px-1 border-b border-neutral-100">
         <div className="flex justify-between items-baseline mb-1.5">
           <div className="flex items-baseline gap-2 text-[11px] text-neutral-400 tabular-nums">
