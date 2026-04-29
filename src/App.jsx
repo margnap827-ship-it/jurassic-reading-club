@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import { Plus, X, Check, Loader2, Trash2 } from 'lucide-react'
+import { Plus, X, Check, Loader2, Trash2, Pencil } from 'lucide-react'
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
@@ -12,6 +13,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [yearFilter, setYearFilter] = useState('all')
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editingBook, setEditingBook] = useState(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
 
@@ -55,6 +57,27 @@ export default function App() {
     } catch (e) {
       console.error('Insert error:', e)
       showToast('저장에 실패했어요')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleEditBook(updatedBook) {
+    setSaving(true)
+    try {
+      const { id, created_at, ...updateData } = updatedBook
+      const { data, error } = await supabase
+        .from('books')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+      if (error) throw error
+      setBooks(books.map(b => b.id === id ? data[0] : b))
+      setEditingBook(null)
+      showToast('수정되었어요')
+    } catch (e) {
+      console.error('Update error:', e)
+      showToast('수정에 실패했어요')
     } finally {
       setSaving(false)
     }
@@ -215,12 +238,13 @@ export default function App() {
             const yrPages = yrBooks.reduce((s, b) => s + (b.pages || 0), 0)
             return (
               <div key={yr} className="mb-14">
-                <div className="flex justify-between items-baseline pb-3 border-b border-neutral-300 mb-3">
+                <div className="flex justify-between items-baseline pb-3 border-b border-neutral-300 mb-1">
                   <div className="text-xl sm:text-2xl font-bold tracking-tight">{yr}</div>
                   <div className="text-xs sm:text-sm text-neutral-400">
                     {yrBooks.length}권 · {yrPages.toLocaleString()}p
                   </div>
                 </div>
+                <TableHeader />
                 {yrBooks.map((b) => (
                   <BookRow
                     key={b.id}
@@ -228,6 +252,7 @@ export default function App() {
                     num={numMap.get(b.id)}
                     formatDate={formatDate}
                     onDelete={() => handleDeleteBook(b.id)}
+                    onEdit={() => setEditingBook(b)}
                   />
                 ))}
               </div>
@@ -261,20 +286,7 @@ export default function App() {
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">분류</h2>
             <div className="text-sm text-neutral-400">한국십진분류법 기준</div>
           </div>
-          <div className="space-y-2.5">
-            {catSorted.map(([name, count]) => (
-              <div key={name} className="grid grid-cols-[100px_1fr_30px] gap-4 items-center">
-                <div className="text-sm font-medium">{name}</div>
-                <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-neutral-900 rounded-full transition-all duration-1000 ease-out"
-                    style={{ width: `${(count / maxCatCount) * 100}%` }}
-                  />
-                </div>
-                <div className="text-sm text-neutral-500 text-right tabular-nums">{count}</div>
-              </div>
-            ))}
-          </div>
+          <CategoryDonut catSorted={catSorted} totalBooks={books.length} />
         </section>
       </div>
 
@@ -286,9 +298,20 @@ export default function App() {
       </footer>
 
       {showAddModal && (
-        <AddBookModal
+        <BookModal
           onClose={() => setShowAddModal(false)}
           onSubmit={handleAddBook}
+          saving={saving}
+          existingMembers={allMembers}
+        />
+      )}
+
+      {editingBook && (
+        <BookModal
+          mode="edit"
+          initialBook={editingBook}
+          onClose={() => setEditingBook(null)}
+          onSubmit={handleEditBook}
           saving={saving}
           existingMembers={allMembers}
         />
@@ -304,7 +327,98 @@ export default function App() {
   )
 }
 
-function Stat({ label, value, unit }) {
+function CategoryDonut({ catSorted, totalBooks }) {
+  const [hovered, setHovered] = useState(null)
+
+  // 차분한 팔레트 (어두운 톤 → 밝은 톤)
+  const palette = [
+    '#1f1f1f', '#3d3d3d', '#5a5a5a', '#787878',
+    '#9a9a9a', '#b8b8b8', '#c8b8a8', '#a89888',
+    '#88a898', '#788898', '#988878', '#a88898', '#7898a8'
+  ]
+
+  const data = catSorted.map(([name, count], i) => ({
+    name,
+    value: count,
+    color: palette[i % palette.length],
+  }))
+
+  const activeIdx = hovered != null ? hovered : 0
+  const active = data[activeIdx]
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr] gap-8 sm:gap-12 items-center">
+      {/* 도넛 차트 */}
+      <div className="relative w-full max-w-[320px] mx-auto" style={{ aspectRatio: '1' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius="62%"
+              outerRadius="92%"
+              paddingAngle={1.5}
+              stroke="none"
+              onMouseEnter={(_, idx) => setHovered(idx)}
+              onMouseLeave={() => setHovered(null)}
+              isAnimationActive={true}
+              animationDuration={800}
+            >
+              {data.map((entry, i) => (
+                <Cell
+                  key={i}
+                  fill={entry.color}
+                  opacity={hovered == null || hovered === i ? 1 : 0.35}
+                  style={{ transition: 'opacity 0.2s', cursor: 'pointer' }}
+                />
+              ))}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+
+        {/* 가운데 텍스트 */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          {active && (
+            <>
+              <div className="text-[11px] text-neutral-400 font-medium mb-1">{active.name}</div>
+              <div className="text-3xl font-bold tracking-tight tabular-nums">{active.value}</div>
+              <div className="text-[11px] text-neutral-400 mt-1 tabular-nums">
+                {Math.round((active.value / totalBooks) * 100)}%
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 범례 */}
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+        {data.map((d, i) => (
+          <button
+            key={d.name}
+            onMouseEnter={() => setHovered(i)}
+            onMouseLeave={() => setHovered(null)}
+            className={`flex items-center justify-between gap-3 py-1.5 transition ${
+              hovered != null && hovered !== i ? 'opacity-40' : 'opacity-100'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span
+                className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                style={{ background: d.color }}
+              />
+              <span className="text-sm font-medium truncate">{d.name}</span>
+            </div>
+            <span className="text-xs text-neutral-400 tabular-nums flex-shrink-0">{d.value}권</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
   return (
     <div className="py-7 px-4 sm:px-6 border-r border-neutral-100 last:border-r-0 sm:[&:nth-child(2)]:border-r [&:nth-child(2)]:border-r-0">
       <div className="text-xs text-neutral-400 mb-2 font-medium">{label}</div>
@@ -330,44 +444,119 @@ function FilterPill({ active, onClick, children }) {
   )
 }
 
-function BookRow({ book, num, formatDate, onDelete }) {
+// 데스크톱: 한 줄 테이블 / 모바일: 카드 스타일
+const COL_TEMPLATE = '50px 90px 60px 1.4fr 1fr 80px 50px 50px'
+
+function TableHeader() {
   return (
-    <div className="group grid grid-cols-[1fr_auto] sm:grid-cols-[60px_90px_1fr_1.2fr_90px_70px_30px] gap-2 sm:gap-5 py-4 border-b border-neutral-100 items-center hover:bg-neutral-50 transition">
-      <div className="hidden sm:block text-xs text-neutral-400 tabular-nums">{num}</div>
-      <div className="text-xs text-neutral-500 tabular-nums sm:col-auto col-start-1 row-start-1">{formatDate(book)}</div>
-      <div className="text-sm sm:text-[15px] font-semibold tracking-tight col-span-2 sm:col-auto sm:row-auto row-start-2">{book.title}</div>
-      <div className="text-xs sm:text-sm text-neutral-500 col-start-1 row-start-3 sm:row-auto sm:col-auto">{book.author || '—'}</div>
-      <div className="col-start-2 row-start-3 sm:row-auto sm:col-auto text-right sm:text-left">
-        <span className="inline-block px-2 py-0.5 bg-neutral-100 rounded text-[11px] text-neutral-600">
-          {book.category || '—'}
-        </span>
-      </div>
-      <div className="text-xs sm:text-sm font-medium text-right col-start-2 row-start-1 sm:row-auto">
-        {book.picker || '—'}
-        <span className="block text-[11px] text-neutral-400 font-normal mt-0.5 tabular-nums">
-          {book.pages ? `${book.pages}p` : '—'}
-        </span>
-      </div>
-      <button
-        onClick={onDelete}
-        className="hidden sm:block text-neutral-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"
-        title="삭제"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+    <div
+      className="hidden sm:grid gap-4 py-3 px-2 border-b border-neutral-300 text-[11px] font-semibold tracking-wider text-neutral-400 uppercase"
+      style={{ gridTemplateColumns: COL_TEMPLATE }}
+    >
+      <div>No.</div>
+      <div>날짜</div>
+      <div>고른이</div>
+      <div>책 제목</div>
+      <div>저자</div>
+      <div>분류</div>
+      <div className="text-right">페이지</div>
+      <div></div>
     </div>
   )
 }
 
-function AddBookModal({ onClose, onSubmit, saving, existingMembers }) {
+function BookRow({ book, num, formatDate, onDelete, onEdit }) {
+  return (
+    <>
+      {/* 데스크톱 (sm 이상): 한 줄 테이블 */}
+      <div
+        className="group hidden sm:grid gap-4 py-3.5 px-2 border-b border-neutral-100 items-center hover:bg-neutral-50 transition"
+        style={{ gridTemplateColumns: COL_TEMPLATE }}
+      >
+        <div className="text-xs text-neutral-400 tabular-nums">{num}</div>
+        <div className="text-xs text-neutral-500 tabular-nums">{formatDate(book)}</div>
+        <div className="text-sm font-medium text-neutral-900">{book.picker || '—'}</div>
+        <div className="text-[15px] font-semibold tracking-tight truncate" title={book.title}>{book.title}</div>
+        <div className="text-sm text-neutral-500 truncate" title={book.author}>{book.author || '—'}</div>
+        <div>
+          <span className="inline-block px-2 py-0.5 bg-neutral-100 rounded text-[11px] text-neutral-600">
+            {book.category || '—'}
+          </span>
+        </div>
+        <div className="text-xs text-neutral-400 text-right tabular-nums">
+          {book.pages ? `${book.pages}p` : '—'}
+        </div>
+        <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition">
+          <button
+            onClick={onEdit}
+            className="text-neutral-400 hover:text-neutral-900 transition p-1"
+            title="수정"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onDelete}
+            className="text-neutral-300 hover:text-red-500 transition p-1"
+            title="삭제"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* 모바일 (sm 미만): 카드 스타일 */}
+      <div className="sm:hidden py-3.5 px-1 border-b border-neutral-100">
+        <div className="flex justify-between items-baseline mb-1.5">
+          <div className="flex items-baseline gap-2 text-[11px] text-neutral-400 tabular-nums">
+            <span>{num}</span>
+            <span>·</span>
+            <span>{formatDate(book)}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-xs font-medium text-neutral-700">{book.picker || '—'}</div>
+            <button onClick={onEdit} className="text-neutral-400" title="수정">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        <div className="text-[15px] font-semibold tracking-tight mb-1">{book.title}</div>
+        <div className="flex justify-between items-center">
+          <div className="text-xs text-neutral-500">{book.author || '—'}</div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block px-2 py-0.5 bg-neutral-100 rounded text-[11px] text-neutral-600">
+              {book.category || '—'}
+            </span>
+            <span className="text-[11px] text-neutral-400 tabular-nums">
+              {book.pages ? `${book.pages}p` : '—'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function BookModal({ mode = 'add', initialBook = null, onClose, onSubmit, saving, existingMembers }) {
   const today = new Date()
-  const [form, setForm] = useState({
-    date: `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}.${String(today.getDate()).padStart(2, '0')}`,
-    title: '',
-    author: '',
-    pages: '',
-    picker: '',
-    category: '',
+  const [form, setForm] = useState(() => {
+    if (initialBook) {
+      return {
+        date: initialBook.date || '',
+        title: initialBook.title || '',
+        author: initialBook.author || '',
+        pages: initialBook.pages != null ? String(initialBook.pages) : '',
+        picker: initialBook.picker || '',
+        category: initialBook.category || '',
+      }
+    }
+    return {
+      date: `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}.${String(today.getDate()).padStart(2, '0')}`,
+      title: '',
+      author: '',
+      pages: '',
+      picker: '',
+      category: '',
+    }
   })
 
   const categories = ['문학', '경제경영', '사회과학', '철학', '심리학', '예술', '역사', '인문', '기술과학', '자연과학', '의학', '언어', '종교']
@@ -381,7 +570,7 @@ function AddBookModal({ onClose, onSubmit, saving, existingMembers }) {
     const year = parseInt(dateParts[0]) || today.getFullYear()
     const month = parseInt(dateParts[1]) || null
 
-    onSubmit({
+    const payload = {
       year,
       date: form.date.trim(),
       month,
@@ -390,14 +579,22 @@ function AddBookModal({ onClose, onSubmit, saving, existingMembers }) {
       author: form.author.trim(),
       pages: form.pages ? parseInt(form.pages) : null,
       category: form.category.trim(),
-    })
+    }
+
+    if (mode === 'edit' && initialBook) {
+      onSubmit({ ...initialBook, ...payload })
+    } else {
+      onSubmit(payload)
+    }
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-[100] flex items-center justify-center p-4 animate-fade-in">
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
         <div className="flex justify-between items-center px-6 py-5 border-b border-neutral-100">
-          <h3 className="text-lg font-bold tracking-tight">새 책 추가</h3>
+          <h3 className="text-lg font-bold tracking-tight">
+            {mode === 'edit' ? '책 정보 수정' : '새 책 추가'}
+          </h3>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 transition">
             <X className="w-5 h-5" />
           </button>
@@ -495,7 +692,7 @@ function AddBookModal({ onClose, onSubmit, saving, existingMembers }) {
             className="px-5 py-2 bg-neutral-900 text-white text-sm font-medium rounded-lg hover:bg-neutral-700 transition disabled:opacity-50 flex items-center gap-2"
           >
             {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            추가하기
+            {mode === 'edit' ? '수정하기' : '추가하기'}
           </button>
         </div>
       </div>
