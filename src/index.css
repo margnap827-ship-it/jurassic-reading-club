@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-feature-settings: "ss06";
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
+}
