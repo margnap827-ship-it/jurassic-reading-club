@@ -221,7 +221,7 @@ export default function App() {
 
           <div className="flex flex-wrap gap-1.5 mb-8">
             <FilterPill active={yearFilter === 'all'} onClick={() => setYearFilter('all')}>전체</FilterPill>
-            {[...years].reverse().map((yr) => (
+            {years.map((yr) => (
               <FilterPill
                 key={yr}
                 active={yearFilter === String(yr)}
@@ -232,7 +232,7 @@ export default function App() {
             ))}
           </div>
 
-          {[...filteredYears].reverse().map((yr) => {
+          {filteredYears.map((yr) => {
             const yrBooks = sortedAll.filter((b) => b.year === yr)
             const yrPages = yrBooks.reduce((s, b) => s + (b.pages || 0), 0)
             return (
